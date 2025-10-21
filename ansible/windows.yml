@@ -1,0 +1,160 @@
+---
+- name: Configuring windows 10
+  hosts: windows
+  vars:
+    sysmon_url: "https://download.sysinternals.com/files/Sysmon.zip"
+    sysmon_zip: "C:\\Users\\{{ ansible_user }}\\Desktop\\Sysmon.zip"
+    sysmon_dir: "C:\\Users\\{{ ansible_user }}\\Desktop\\Sysmon"
+    sysmon_config_url: "https://raw.githubusercontent.com/olafhartong/sysmon-modular/master/sysmonconfig.xml"
+    sysmon_config_path: "{{ sysmon_dir }}\\sysmonconfig.xml"
+
+    fluent_bit_install_path: "C:\\Program Files\\fluent-bit"
+    fluent_bit_config_path: "{{ fluent_bit_install_path }}\\conf"
+    fluent_bit_temp_dir: "{{ ansible_env.TEMP }}\\fluent-bit"
+    fluent_bit_exe: "https://packages.fluentbit.io/windows/fluent-bit-4.0.13-win64.exe"
+    fluent_bit_t_dir: "C:\\Users\\vagrant\\AppData\\Local\\Temp"
+    fluent_bit_path: "C:\\Program Files\\fluent-bit\\conf"
+
+  tasks:
+    - name: Check if Sysmon is already installed
+      win_stat:
+        path: "{{ sysmon_dir }}\\Sysmon64.exe"
+      register: sysmon_installed
+
+    - block:
+      - name: Ensure Sysmon directory exists
+        win_file:
+          path: "{{ sysmon_dir }}"
+          state: directory
+        
+
+      - name: Download Sysmon
+        win_get_url:
+          url: "{{ sysmon_url }}"
+          dest: "{{ sysmon_zip }}"
+        
+
+      - name: Unzip Sysmon archive (using native PowerShell)
+        win_command: >
+          powershell.exe -Command "Expand-Archive -Path '{{ sysmon_zip }}' -DestinationPath '{{ sysmon_dir }}' -Force"
+        
+
+      - name: Download Sysmon configuration file
+        win_get_url:
+          url: "{{ sysmon_config_url }}"
+          dest: "{{ sysmon_config_path }}"
+        
+      
+      - name: Install Sysmon with configuration (first time)
+        win_command: >
+          "{{ sysmon_dir }}\\Sysmon64.exe" -accepteula -i "{{ sysmon_config_path }}"
+        args:
+          chdir: "{{ sysmon_dir }}"
+        register: sysmon_install
+
+      - name: Show Sysmon installation result
+        ansible.builtin.debug:
+          var: sysmon_install.stdout
+    
+      when: not sysmon_installed.stat.exists
+
+    - name: Show Sysmon already installed message
+      ansible.builtin.debug:
+        msg: "Sysmon is already installed. Skipping installation."
+      when: sysmon_installed.stat.exists
+
+    #######################################################################
+
+    - name: Check if Fluent Bit installer already exists
+      win_stat:
+        path: "{{ fluent_bit_t_dir }}\\fluent-bit-4.0.13-win64.exe"
+      register: fluent_bit_installer
+
+    - name: Download Fluent Bit if not present
+      win_get_url:
+        url: '{{ fluent_bit_exe }}'
+        dest: '{{ fluent_bit_t_dir }}\\fluent-bit-4.0.13-win64.exe'
+      when: not fluent_bit_installer.stat.exists
+
+    - name: Silently install Fluent Bit to C:\Program Files\fluent-bit
+      win_command: >
+        "{{ fluent_bit_t_dir }}\\fluent-bit-4.0.13-win64.exe" /S
+      args:
+        creates: "C:\\Program Files\\fluent-bit\\bin\\fluent-bit.exe"
+
+    - name: Test Fluent Bit dummy input (5 logs only)
+      win_command: >
+        powershell.exe -Command "& 'C:\Program Files\fluent-bit\bin\fluent-bit.exe' -i dummy -o stdout | Select-Object -First 5"
+      register: fluentbit_test
+      ignore_errors: yes
+
+    - name: Create Fluent bit configuration file
+      win_copy:
+        dest: "{{ fluent_bit_path }}\\fluent-bit.conf"
+        content: |
+          [SERVICE]
+            Flush        5
+            Daemon       Off
+            Log_Level    info
+
+          [INPUT]
+              Name        winevtlog
+              Channels    Application
+              Interval_Sec 2
+              Tag         windows.application
+              DB          C:\Program Files\fluent-bit\bin\winevtlog_application.db
+
+          [INPUT]
+              Name        winevtlog
+              Channels    Security
+              Interval_Sec 2
+              Tag         windows.security
+              DB          C:\Program Files\fluent-bit\bin\winevtlog_security.db
+
+          [INPUT]
+              Name        winevtlog
+              Channels    Microsoft-Windows-Sysmon/Operational
+              Interval_Sec 2
+              Tag         windows.sysmon
+              DB          C:\Program Files\fluent-bit\bin\winevtlog_sysmon.db
+
+          [OUTPUT]
+              Name                  opensearch
+              Match                 *
+              Host                  192.168.56.1
+              Port                  9200
+              Logstash_Format       On
+              Logstash_Prefix       windows
+              Suppress_Type_Name    On
+
+
+    - name: Check if Fluent Bit service exists
+      win_shell: Get-Service fluent-bit -ErrorAction SilentlyContinue
+      register: fluentbit_service
+      args:
+        executable: powershell
+
+    - name: Create Fluent Bit service using PowerShell
+      win_shell: |
+        New-Service fluent-bit -BinaryPathName "`"C:\Program Files\fluent-bit\bin\fluent-bit.exe`" -c `"C:\Program Files\fluent-bit\conf\fluent-bit.conf`"" -StartupType Automatic -Description "This service runs Fluent Bit, a log collector that enables real-time processing and delivery of log data to centralized logging systems."
+      args:
+        executable: powershell
+      when: fluentbit_service.stdout == ""
+
+    - name: Start Fluent Bit service
+      win_service:
+        name: fluent-bit
+        state: started
+        start_mode: auto
+      when: fluentbit_service.stdout == "" or fluentbit_service.stdout | regex_search('Stopped')
+
+    - name: Check Fluent Bit service status
+      win_shell: get-service fluent-bit | format-list
+      register: fluentbit_status
+      args:
+        executable: powershell
+
+    - name: Display Fluent Bit service status
+      debug:
+        var: fluentbit_status.stdout
+        

@@ -1,0 +1,23 @@
+# Vagrant VM data
+.vagrant/
+*.vmdk
+*.box
+*.log
+
+# Ansible cache / facts
+*.retry
+__pycache__/
+*.pyc
+*.log
+
+# OpenSearch / Docker
+opensearch/data/       # persistent data
+opensearch/logs/       # container logs
+opensearch/docker-compose.override.yml
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
