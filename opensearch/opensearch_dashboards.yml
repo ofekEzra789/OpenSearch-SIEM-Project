@@ -1,0 +1,8 @@
+# opensearch_dashboards.yml
+server.host: "0.0.0.0"
+opensearch.hosts: ["http://opensearch-node1:9200"]
+
+# Enable enhanced Discover experience
+data_source.enabled: true
+workspace.enabled: true
+explore.enabled: true

@@ -1,0 +1,33 @@
+---
+- name: Configure Ubuntu (Fluent bit)
+  hosts: ubuntu
+  become: yes
+  tasks:
+    - name: Update ubuntu
+      apt:
+        update_cache: yes
+      register: apt_update
+
+    - name: Upgrade all packages to the latest version
+      apt:
+        upgrade: dist
+        autoremove: yes
+        autoclean: yes
+      register: apt_upgrade
+
+    - name: Check if a reboot is required
+      stat:
+        path: /var/run/reboot-required
+      register: reboot_required
+
+    - name: Display reboot status
+      debug:
+        msg: "Reboot is required"
+      when: reboot_required.stat.exists
+
+    - name: Display upgrade summary
+      debug:
+        msg: 
+          - "APT cache updated: {{ apt_update.changed }}"
+          - "Packages upgraded: {{ apt_upgrade.changed }}"
+          - "Reboot required: {{ reboot_required.stat.exists }}"
