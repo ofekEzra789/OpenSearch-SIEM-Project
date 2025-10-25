@@ -38,7 +38,6 @@ Vagrant.configure("2") do |config|
       vb.cpus = 1
     end
 
-    # Provisioning --> back later to connect to ansible
   end
   
 end
