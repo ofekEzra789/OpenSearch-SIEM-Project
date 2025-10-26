@@ -2,6 +2,10 @@
 - name: Configure Ubuntu (Fluent bit)
   hosts: ubuntu
   become: yes
+
+  vars:
+    ubuntu_codename: "{{ ansible_distribution_release }}"
+
   tasks:
     - name: Update ubuntu
       apt:
@@ -31,3 +35,113 @@
           - "APT cache updated: {{ apt_update.changed }}"
           - "Packages upgraded: {{ apt_upgrade.changed }}"
           - "Reboot required: {{ reboot_required.stat.exists }}"
+
+  #################################################################
+
+    - name: Ensure apt keyrings directory exists
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+    
+    - name: Download Fluent Bit GPG key
+      get_url:
+        url: https://packages.fluentbit.io/fluentbit.key
+        dest: /tmp/fluentbit.key
+        mode: '0644'
+    
+    - name: Add Fluent Bit GPG key
+      shell: |
+        cat /tmp/fluentbit.key | gpg --dearmor > /etc/apt/keyrings/fluentbit.gpg
+      args:
+        creates: /etc/apt/keyrings/fluentbit.gpg
+
+
+    - name: Add Fluent Bit APT repository
+      apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/fluentbit.gpg] https://packages.fluentbit.io/ubuntu/{{ ubuntu_codename }} {{ ubuntu_codename }} main"
+        filename: fluent-bit
+        state: present
+
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+    
+    - name: Install Fluent Bit
+      apt:
+        name: fluent-bit
+        state: present
+
+    - name: Deploy Fluent Bit configuration
+      copy:
+        dest: /etc/fluent-bit/fluent-bit.conf
+        mode: '0644'
+        owner: root
+        group: root
+        content: |
+          [SERVICE]
+              Flush        5
+              Daemon       Off
+              Log_Level    info
+              Parsers_File  parsers.conf
+          
+          [INPUT]
+              Name              tail
+              Tag               auth
+              Path              /var/log/auth.log
+              Parser            syslog-rfc3164
+              DB                /var/log/flb_auth.db
+              Mem_Buf_Limit     5MB
+              Skip_Long_Lines   On
+              Refresh_Interval  10
+
+          [INPUT]
+              Name                 tail
+              Tag                  syslog
+              Path                 /var/log/syslog
+              Parser               syslog-rfc3164
+              DB                   /var/log/flb_syslog.db
+              Mem_Buf_Limit        5MB
+              Skip_Long_Lines      On
+              Refresh_Interval     10
+
+          [FILTER]
+              Name                 record_modifier
+              Match                auth
+              Record hostname      ${HOSTNAME}
+              Record log_type      authentication
+              Record log_source    ubuntu
+          
+          [FILTER]
+              Name                 record_modifier
+              Match                syslog
+              Record hostname      ${HOSTNAME}
+              Record log_type      system
+              Record log_source    ubuntu
+
+          [OUTPUT]
+              Name                  opensearch
+              Match                 *
+              Host                  192.168.56.1
+              Port                  9200
+              Logstash_Format       On
+              Logstash_Prefix       ubuntu
+              Suppress_Type_Name    On
+      
+
+    - name: Enable Fluent Bit service
+      systemd:
+        name: fluent-bit
+        enabled: yes
+        state: started
+
+    - name: Check Fluent Bit service status
+      systemd:
+        name: fluent-bit
+      register: fluent_bit_status
+
+    - name: Display Fluent Bit service status
+      debug:
+        msg: "Fluent Bit is {{ fluent_bit_status.status.ActiveState }}"
+          
