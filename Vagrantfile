@@ -10,7 +10,7 @@ Vagrant.configure("2") do |config|
     win10.vm.network "private_network", ip: "192.168.56.15"
     
     # Monitoring network (internal, VM-to-VM)
-    win10.vm.network "private_network", ip: "192.168.56.16", virtualbox__intent: "monitored_net"
+    win10.vm.network "private_network", ip: "192.168.56.16", virtualbox__intnet: "monitored_net"
 
     # WinRM setup
     win10.vm.communicator = "winrm"

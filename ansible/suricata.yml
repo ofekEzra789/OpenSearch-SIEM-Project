@@ -5,6 +5,8 @@
 
   vars:
     suricata_codename: "{{ ansible_distribution_release }}"
+    monitor_interface: "enp0s9"
+    home_network: "192.168.56.0/24"
 
   tasks:
     - name: Update vm
@@ -31,9 +33,99 @@
 
     - name: Display upgrade summary
       debug:
-        msg: 
+        msg:
           - "APT cache updated: {{ apt_update.changed }}"
           - "Packages upgraded: {{ apt_upgrade.changed }}"
           - "Reboot required: {{ reboot_required.stat.exists }}"
 
-  #################################################################
+    #################################################################
+
+    - name: Install required dependencies
+      apt:
+        name:
+          - software-properties-common
+          - jq
+        state: present
+
+    - name: Add Suricata stable PPA repository
+      apt_repository:
+        repo: ppa:oisf/suricata-stable
+        state: present
+        update_cache: yes
+
+    - name: Install Suricata
+      apt:
+        name: suricata
+        state: present
+
+    - name: Check Suricata version
+      command: suricata --build-info
+      register: suricata_version
+      changed_when: false
+
+    - name: Display installed Suricata version
+      debug:
+        msg: "{{ suricata_version.stdout_lines[0] }}"
+
+    - name: Update Suricata rules with suricata-update
+      command: suricata-update
+      args:
+        creates: /var/lib/suricata/rules/suricata.rules
+
+    - name: Configure HOME_NET in suricata.yaml
+      lineinfile:
+        path: /etc/suricata/suricata.yaml
+        regexp: '^\s*HOME_NET:\s*"\[.*\]"'
+        line: '    HOME_NET: "[{{ home_network }}]"'
+        backrefs: no
+
+    - name: Configure af-packet interface (simple replacement)
+      replace:
+        path: /etc/suricata/suricata.yaml
+        regexp: "interface: eth0"
+        replace: "interface: {{ monitor_interface }}"
+
+    - name: Enable community-id in suricata.yaml
+      replace:
+        path: /etc/suricata/suricata.yaml
+        regexp: 'community-id:\s*false'
+        replace: "community-id: true"
+
+    - name: Test Suricata configuration
+      command: suricata -T -c /etc/suricata/suricata.yaml
+      register: suricata_test
+      changed_when: false
+      failed_when: suricata_test.rc != 0
+
+    - name: Display configuration test result
+      debug:
+        msg: "Suricata configuration test: {{ 'PASSED ✓' if suricata_test.rc == 0 else 'FAILED ✗' }}"
+
+    - name: Enable Suricata service
+      systemd:
+        name: suricata
+        enabled: yes
+        state: started
+
+    - name: Restart Suricata to apply new configuration
+      systemd:
+        name: suricata
+        state: restarted
+      when: suricata_test.rc == 0
+
+    - name: Wait for Suricata to initialize
+      pause:
+        seconds: 5
+
+    - name: Check Suricata service status
+      systemd:
+        name: suricata
+      register: suricata_status
+
+    - name: Display Suricata status
+      debug:
+        msg:
+          - "Suricata service: {{ suricata_status.status.ActiveState }}"
+          - "Monitoring interface: {{ monitor_interface }}"
+          - "Home network: {{ home_network }}"
+          - "Logs: /var/log/suricata/eve.json"
