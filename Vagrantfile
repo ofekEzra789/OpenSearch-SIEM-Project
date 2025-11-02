@@ -61,6 +61,7 @@ Vagrant.configure("2") do |config|
     suricata.vm.box_version = "20241002.0.0"
     suricata.vm.hostname = "suricata"
 
+
     # Management network 
     suricata.vm.network "private_network", ip: "192.168.56.25"
 
