@@ -22,7 +22,7 @@ Vagrant.configure("2") do |config|
       vb.cpus = 2
 
       # Enable promiscuous mode for network monitoring
-      vb.customize ["modifyvm", :id, "--nicpromisc2", "allow-all"]
+      # vb.customize ["modifyvm", :id, "--nicpromisc2", "allow-all"]
     end
 
     # Set network to Private (needed for WinRM)
@@ -31,13 +31,13 @@ Vagrant.configure("2") do |config|
     POWERSHELL
   end
 
-  ##### Ubuntu ####
+  ##### Ubuntu #####
   config.vm.define "ubuntu" do |ubuntu|
     ubuntu.vm.box = "ubuntu/jammy64"
     ubuntu.vm.box_version = "20241002.0.0"
     ubuntu.vm.hostname = "ubuntu"
 
-    # Host-only network for management
+    # Host-only network for management (Ansible)
     ubuntu.vm.network "private_network", ip: "192.168.56.20"
 
     # Monitoring network (internal)
@@ -50,7 +50,7 @@ Vagrant.configure("2") do |config|
       vb.cpus = 1
 
       # Enable promiscuous mode for network monitoring
-      vb.customize ["modifyvm", :id, "--nicpromisc2", "allow-all"]
+      # vb.customize ["modifyvm", :id, "--nicpromisc2", "allow-all"]
     end
 
   end
@@ -62,7 +62,7 @@ Vagrant.configure("2") do |config|
     suricata.vm.hostname = "suricata"
 
 
-    # Management network 
+    # Management network (Ansible)
     suricata.vm.network "private_network", ip: "192.168.56.25"
 
     # Monitoring network
@@ -79,6 +79,27 @@ Vagrant.configure("2") do |config|
       vb.customize ["modifyvm", :id, "--nicpromisc3", "allow-all"]
     end
 
+  end
+
+  ##### Kali - Attacker ####
+  config.vm.define "kali" do |kali|
+    kali.vm.box = "kalilinux/rolling"
+    kali.vm.box_version = "2025.3.0"
+    kali.vm.hostname = "kali"
+
+    # Management network (Ansible)
+    kali.vm.network "private_network", ip: "192.168.56.30"
+
+    # Monitoring network (attacks from here)
+    kali.vm.network "private_network", ip: "192.168.56.31", virtualbox__intnet: "monitored_net"
+
+    # VirtualBox provider settings
+    kali.vm.provider "virtualbox" do |vb|
+      vb.name = "kali-attacker"
+      vb.memory = 2048        
+      vb.cpus = 2
+      
+    end
   end
   
 end
